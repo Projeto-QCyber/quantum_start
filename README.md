@@ -1,9 +1,56 @@
-# LearningML
 
-The goal of this project is to implement MaxAbsScaler algorithm to implement a filter-based feature scaling strategy . Then, use the condensed feature set to train a series of different models.
+## Observações
 
-THIS IS SUPPOSED TO BE MULTICLASS CLASSIFICATION!
+A seguir, seguem as orientações de instalação Balbino
 
-The rapid increase in online risks is a reflection of the exponential growth of Internet of Things (IoT) networks. Researchers have proposed numerous intrusion detection techniques to mitigate the harm caused by these threats. Enterprises use intrusion detection systems (IDSs) and intrusion prevention systems (IPSs) to keep their networks safe, stable, and accessible. Network intrusion detection solutions have lately integrated powerful Machine Learning (ML) techniques to safeguard IoT networks. Selecting the proper data features for effectively training such ML models is critical to maximizing detection accuracy and computational efficiency. However, the efficiency of these systems degrades in high-dimensional data spaces, and it is crucial to have a suitable feature extraction method to eliminate extraneous data from the classification procedure
+1. **Não instale** `qiskit-aer` ou `qiskit-aer-gpu` manualmente quando estiver usando o **NVIDIA cuQuantum**; ele já inclui uma versão atualizada com suporte ao backend em GPU.
+2. Se você instalar `qiskit-aer-gpu`, o pacote exigirá a instalação simultânea de `qiskit-aer` e, **com ambos instalados, nada funciona**.
+3. Instalar somente `qiskit-aer` funciona, mas **sem suporte a GPU**.
+4. O procedimento correto é **não instalar** nenhum desses pacotes: a NVIDIA cuQuantum utiliza automaticamente um backend próprio chamado **`cusvaer`**, raramente mencionado em tutoriais, Stack Exchange ou issues do GitHub se pesquisar apenas por Qiskit.
+5. **Modelos com ruídos não funcionam** nesse backend! Ruído pode provocar queda de performance, portanto será necessário estudar alternativas antes de treinar efetivamente os modelos dos agentes quânticos.
 
-The dataset used UNSW-NB15
+## Apptainer Containers
+
+O CENAPAD-UFC utiliza o Apptainer para executar containers.
+
+Apptainer segue o padrão **OCI** e é amplamente adotado em clusters multi-nó. Ele permite importar imagens diretamente do Docker Hub, NVIDIA NGC ou outros repositórios.
+
+### 1. Baixando imagens
+
+**NVIDIA NGC** (exemplo cuquantum-appliance)
+```bash
+apptainer pull docker://nvcr.io/nvidia/cuquantum-appliance:25.03-x86_64
+ls -lh
+# => cuquantum-appliance_25.03-x86_64.sif (~9 GB)
+```
+
+### 2. Executando o container
+
+#### 3.1 Sessão iterativa (CPU)
+```bash
+salloc -N1 --gpus=0      # aloca nó sem GPU (exemplo)
+apptainer shell cuquantum-appliance_25.03-x86_64.sif
+```
+
+#### 3.2 Sessão iterativa com GPU
+```bash
+salloc -N1 --gpus=1       # aloca 1 GPU
+apptainer shell cuquantum-appliance_25.03-x86_64.sif
+python -c "import torch, os; print(torch.cuda.device_count())"  # deve exibir 1
+```
+
+#### 3.3 Executando diretamente
+```bash
+apptainer run --nv cuquantum-appliance_25.03-x86_64.sif      # --nv habilita suportes NVIDIA
+```
+
+### 4. NVIDIA cuQuantum Appliance (multi-GPU)
+Para simular circuitos quânticos multi-GPU:
+```bash
+apptainer pull docker://nvcr.io/nvidia/cuquantum-appliance:25.03-x86_64
+apptainer run --nv --gpus=1 cuquantum-appliance_25.03-x86_64.sif
+```
+Dentro do container, exemplos ficam em `/home/cuquantum/examples`.
+
+### Observações finais
+* Usar `--nv` (NVIDIA)
