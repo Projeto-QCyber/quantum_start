@@ -1,0 +1,12 @@
+*.secret
+
+/results/data/*
+/results/optuna/*
+/.vscode/*
+/__pycache__/*
+/datasets/*
+/src/__pycache__/*
+/src/logs/*
+/src/results/*
+/logs/*
+/.venv/*

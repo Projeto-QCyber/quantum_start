@@ -1,0 +1,8 @@
+/models/*
+/results/*
+/src/__pycache__/*
+/src/.venv/*
+/src/logs/*
+/src/results/*
+/logs/*
+*.secret

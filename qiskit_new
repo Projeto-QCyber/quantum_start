@@ -1,0 +1,958 @@
+class BackendV2(Backend, ABC):
+    """Abstract class for Backends
+
+
+    This abstract class is to be used for all Backend objects created by a
+    provider. This version differs from earlier abstract Backend classes in
+    that the configuration attribute no longer exists. Instead, attributes
+    exposing equivalent required immutable properties of the backend device
+    are added. For example ``backend.configuration().n_qubits`` is accessible
+    from ``backend.num_qubits`` now.
+
+
+    The ``options`` attribute of the backend is used to contain the dynamic
+    user configurable options of the backend. It should be used more for
+    runtime options that configure how the backend is used. For example,
+    something like a ``shots`` field for a backend that runs experiments which
+    would contain an int for how many shots to execute.
+
+
+    If migrating a provider from :class:`~qiskit.providers.BackendV1`
+    one thing to keep in mind is for
+    backwards compatibility you might need to add a configuration method that
+    will build a :class:`~qiskit.providers.models.BackendConfiguration` object
+    and :class:`~qiskit.providers.models.BackendProperties` from the attributes
+    defined in this class for backwards compatibility.
+
+
+    A backend object can optionally contain methods named
+    ``get_translation_stage_plugin`` and ``get_scheduling_stage_plugin``. If these
+    methods are present on a backend object and this object is used for
+    :func:`~.transpile` or :func:`~.generate_preset_pass_manager` the
+    transpilation process will default to using the output from those methods
+    as the scheduling stage and the translation compilation stage. This
+    enables a backend which has custom requirements for compilation to specify a
+    stage plugin for these stages to enable custom transformation of
+    the circuit to ensure it is runnable on the backend. These hooks are enabled
+    by default and should only be used to enable extra compilation steps
+    if they are **required** to ensure a circuit is executable on the backend or
+    have the expected level of performance. These methods are passed no input
+    arguments and are expected to return a ``str`` representing the method name
+    which should be a stage plugin (see: :mod:`qiskit.transpiler.preset_passmanagers.plugin`
+    for more details on plugins). The typical expected use case is for a backend
+    provider to implement a stage plugin for ``translation`` or ``scheduling``
+    that contains the custom compilation passes and then for the hook methods on
+    the backend object to return the plugin name so that :func:`~.transpile` will
+    use it by default when targetting the backend.
+
+
+    Subclasses of this should override the public method :meth:`run` and the internal
+    :meth:`_default_options`:
+
+
+    .. automethod:: _default_options
+    """
+
+
+    version = 2
+
+
+    def __init__(
+        self,
+        provider: Provider = None,
+        name: str = None,
+        description: str = None,
+        online_date: datetime.datetime = None,
+        backend_version: str = None,
+        **fields,
+    ):
+        """Initialize a BackendV2 based backend
+
+
+        Args:
+            provider: An optional backwards reference to the
+                :class:`~qiskit.providers.Provider` object that the backend
+                is from
+            name: An optional name for the backend
+            description: An optional description of the backend
+            online_date: An optional datetime the backend was brought online
+            backend_version: An optional backend version string. This differs
+                from the :attr:`~qiskit.providers.BackendV2.version` attribute
+                as :attr:`~qiskit.providers.BackendV2.version` is for the
+                abstract :attr:`~qiskit.providers.Backend` abstract interface
+                version of the object while ``backend_version`` is for
+                versioning the backend itself.
+            fields: kwargs for the values to use to override the default
+                options.
+
+
+        Raises:
+            AttributeError: If a field is specified that's outside the backend's
+                options
+        """
+
+
+        self._options = self._default_options()
+        self._provider = provider
+        if fields:
+            for field in fields:
+                if field not in self._options.data:
+                    raise AttributeError(f"Options field {field} is not valid for this backend")
+            self._options.update_config(**fields)
+        self.name = name
+        """Name of the backend."""
+        self.description = description
+        """Optional human-readable description."""
+        self.online_date = online_date
+        """Date that the backend came online."""
+        self.backend_version = backend_version
+        """Version of the backend being provided.  This is not the same as
+        :attr:`.BackendV2.version`, which is the version of the :class:`~.providers.Backend`
+        abstract interface."""
+        self._coupling_map = None
+
+
+    @property
+    def instructions(self) -> List[Tuple[Instruction, Tuple[int]]]:
+        """A list of Instruction tuples on the backend of the form ``(instruction, (qubits)``"""
+        return self.target.instructions
+
+
+    @property
+    def operations(self) -> List[Instruction]:
+        """A list of :class:`~qiskit.circuit.Instruction` instances that the backend supports."""
+        return list(self.target.operations)
+
+
+    @property
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                ``(control_qubit, target_qubit)``.
+
+
+        Returns:
+            List[ControlChannel]: The multi qubit control line.
+
+
+        Raises:
+            NotImplementedError: if the backend doesn't support querying the
+                measurement mapping
+        """
+        raise NotImplementedError
+
+
+    def set_options(self, **fields):
+        """Set the options fields for the backend
+
+
+        This method is used to update the options of a backend. If
+        you need to change any of the options prior to running just
+        pass in the kwarg with the new value for the options.
+
+
+        Args:
+            fields: The fields to update the options
+
+
+        Raises:
+            AttributeError: If the field passed in is not part of the
+                options
+        """
+        for field in fields:
+            if not hasattr(self._options, field):
+                raise AttributeError(f"Options field {field} is not valid for this backend")
+        self._options.update_options(**fields)
+
+
+    @property
+    def options(self):
+        """Return the options for the backend
+
+
+        The options of a backend are the dynamic parameters defining
+        how the backend is used. These are used to control the :meth:`run`
+        method.
+        """
+        return self._options
+
+
+    @property
+    def provider(self):
+        """Return the backend Provider.
+
+
+        Returns:
+            Provider: the Provider responsible for the backend.
+        """
+        return self._provider
+
+
+    @abstractmethod
+    def run(self, run_input, **options):
+        """Run on the backend.
+
+
+        This method returns a :class:`~qiskit.providers.Job` object
+        that runs circuits. Depending on the backend this may be either an async
+        or sync call. It is at the discretion of the provider to decide whether
+        running should block until the execution is finished or not: the Job
+        class can handle either situation.
+
+
+        Args:
+            run_input (QuantumCircuit or Schedule or ScheduleBlock or list): An
+                individual or a list of :class:`.QuantumCircuit`,
+                :class:`~qiskit.pulse.ScheduleBlock`, or :class:`~qiskit.pulse.Schedule` objects to
+                run on the backend.
+            options: Any kwarg options to pass to the backend for running the
+                config. If a key is also present in the options
+                attribute/object then the expectation is that the value
+                specified will be used instead of what's set in the options
+                object.
+
+
+        Returns:
+            Job: The job object for the run
+        """
+        pass
+
+
+class BackendSamplerV2(BaseSamplerV2):
+    """Evaluates bitstrings for provided quantum circuits
+
+
+    The :class:`~.BackendSamplerV2` class is a generic implementation of the
+    :class:`~.BaseSamplerV2` interface that is used to wrap a :class:`~.BackendV2`
+    (or :class:`~.BackendV1`) object in the class :class:`~.BaseSamplerV2` API. It
+    facilitates using backends that do not provide a native
+    :class:`~.BaseSamplerV2` implementation in places that work with
+    :class:`~.BaseSamplerV2`. However,
+    if you're using a provider that has a native implementation of
+    :class:`~.BaseSamplerV2`, it is a better choice to leverage that native
+    implementation as it will likely include additional optimizations and be
+    a more efficient implementation. The generic nature of this class
+    precludes doing any provider- or backend-specific optimizations.
+
+
+    This class does not perform any measurement or gate mitigation.
+
+
+    Each tuple of ``(circuit, <optional> parameter values, <optional> shots)``, called a sampler
+    primitive unified bloc (PUB), produces its own array-valued result. The :meth:`~run` method can
+    be given many pubs at once.
+
+
+    The options for :class:`~.BackendSamplerV2` consist of the following items.
+
+
+    * ``default_shots``: The default shots to use if none are specified in :meth:`~run`.
+      Default: 1024.
+
+
+    * ``seed_simulator``: The seed to use in the simulator. If None, a random seed will be used.
+      Default: None.
+
+
+    * ``run_options``: A dictionary of options to pass through to the ``run()``
+      method of the wrapped :class:`~.BackendV2` instance.
+
+
+    .. note::
+
+
+        This class requires a backend that supports ``memory`` option.
+
+
+    """
+
+
+    def __init__(
+        self,
+        *,
+        backend: BackendV1 | BackendV2,
+        options: dict | None = None,
+    ):
+        """
+        Args:
+            backend: The backend to run the primitive on.
+            options: The options to control the default shots (``default_shots``) and
+                the random seed for the simulator (``seed_simulator``).
+        """
+        self._backend = backend
+        self._options = Options(**options) if options else Options()
+
+
+    @property
+    def backend(self) -> BackendV1 | BackendV2:
+        """Returns the backend which this sampler object based on."""
+        return self._backend
+
+
+    @property
+    def options(self) -> Options:
+        """Return the options"""
+        return self._options
+
+
+    def run(
+        self, pubs: Iterable[SamplerPubLike], *, shots: int | None = None
+    ) -> PrimitiveJob[PrimitiveResult[SamplerPubResult]]:
+        if shots is None:
+            shots = self._options.default_shots
+        coerced_pubs = [SamplerPub.coerce(pub, shots) for pub in pubs]
+        self._validate_pubs(coerced_pubs)
+        job = PrimitiveJob(self._run, coerced_pubs)
+        job._submit()
+        return job
+
+
+    def _validate_pubs(self, pubs: list[SamplerPub]):
+        for i, pub in enumerate(pubs):
+            if len(pub.circuit.cregs) == 0:
+                warnings.warn(
+                    f"The {i}-th pub's circuit has no output classical registers and so the result "
+                    "will be empty. Did you mean to add measurement instructions?",
+                    UserWarning,
+                )
+
+
+    def _run(self, pubs: list[SamplerPub]) -> PrimitiveResult[SamplerPubResult]:
+        pub_dict = defaultdict(list)
+        # consolidate pubs with the same number of shots
+        for i, pub in enumerate(pubs):
+            pub_dict[pub.shots].append(i)
+
+
+        results = [None] * len(pubs)
+        for shots, lst in pub_dict.items():
+            # run pubs with the same number of shots at once
+            pub_results = self._run_pubs([pubs[i] for i in lst], shots)
+            # reconstruct the result of pubs
+            for i, pub_result in zip(lst, pub_results):
+                results[i] = pub_result
+        return PrimitiveResult(results, metadata={"version": 2})
+
+
+    def _run_pubs(self, pubs: list[SamplerPub], shots: int) -> list[SamplerPubResult]:
+        """Compute results for pubs that all require the same value of ``shots``."""
+        # prepare circuits
+        bound_circuits = [pub.parameter_values.bind_all(pub.circuit) for pub in pubs]
+        flatten_circuits = []
+        for circuits in bound_circuits:
+            flatten_circuits.extend(np.ravel(circuits).tolist())
+
+
+        run_opts = self._options.run_options or {}
+        # run circuits
+        results, _ = _run_circuits(
+            flatten_circuits,
+            self._backend,
+            clear_metadata=False,
+            memory=True,
+            DataBin(**meas, shape=shape),
+            metadata={"shots": shots, "circuit_metadata": circuit_metadata},
+        )
+
+        Qiskit Machine Learning v0.8 Migration Guide
+============================================
+
+This tutorial will guide you through the process of migrating your code
+using V2 primitives.
+
+Introduction
+------------
+
+The Qiskit Machine Learning 0.8 release focuses on transitioning from V1 to V2 primitives. 
+This release also incorporates selected algorithms from the now deprecated `qiskit_algorithms` repository.
+
+
+Contents:
+
+-  Overview of the primitives
+-  Transpilation and Pass Managers
+-  Algorithms from `qiskit_algorithms`
+-  🔪 The Sharp Bits: Common Pitfalls
+
+Overview of the primitives
+--------------------------
+
+With the launch of `Qiskit 1.0`, V1 primitives are deprecated and replaced by V2 primitives. Further details
+are available in the 
+`V2 primitives migration guide <https://docs.quantum.ibm.com/migration-guides/v2-primitives>`__.
+
+The Qiskit Machine Learning 0.8 update aligns with the Qiskit IBM Runtime’s Primitive Unified Block (PUB) 
+requirements and the constraints of the instruction set architecture (ISA) for circuits and observables. 
+
+Users can switch between `V1` primitives and `V2` primitives from version `0.8`.
+
+**Warning**:  V1 primitives are deprecated and will be removed in version `0.9`. To ensure full compatibility 
+with V2 primitives, review the transpilation and pass managers section if your primitives require transpilation, 
+such as those from `qiskit-ibm-runtime`.
+
+Please bear in mind that not all V2 primitives are directly supported. Should you require assistance, 
+please do not hesitate to reach out via our 
+`Slack channel <https://qiskit.enterprise.slack.com/archives/C07JE3V55C1>`__ or submit an issue on 
+`GitHub <https://github.com/qiskit-community/qiskit-machine-learning/issues>`__.
+
+Usage of V2 primitives is as straightforward as using V1:
+
+- For kernel-based methods:
+
+.. code:: ipython3
+
+    from qiskit.primitives import StatevectorSampler as Sampler
+    from qiskit_machine_learning.state_fidelities import ComputeUncompute
+    from qiskit_machine_learning.kernels import FidelityQuantumKernel
+    ...
+    sampler = Sampler()
+    fidelity = ComputeUncompute(sampler=sampler)
+    feature_map = ZZFeatureMap(num_qubits)
+    qk = FidelityQuantumKernel(feature_map=feature_map, fidelity=fidelity)
+    ...
+
+- For Estimator based neural_network based methods:
+
+.. code:: ipython3
+
+    from qiskit.primitives import StatevectorEstimator as Estimator
+    from qiskit_machine_learning.neural_networks import EstimatorQNN
+    from qiskit_machine_learning.gradients import ParamShiftEstimatorGradient
+    ...
+    estimator = Estimator()
+    estimator_gradient = ParamShiftEstimatorGradient(estimator=estimator)
+    
+    estimator_qnn = EstimatorQNN(
+        circuit=circuit,
+        observables=observables,
+        input_params=feature_map.parameters,
+        weight_params=ansatz.parameters,
+        estimator=estimator,
+        gradient=estimator_gradient,
+    )
+    ...
+
+- For Sampler based neural_network based methods:
+
+.. code:: ipython3
+    
+    from qiskit.primitives import StatevectorSampler as Sampler
+    from qiskit_machine_learning.neural_networks import SamplerQNN
+    from qiskit_machine_learning.gradients import ParamShiftSamplerGradient
+    ...
+    sampler = Sampler()
+    sampler_gradient = ParamShiftSamplerGradient(sampler=sampler)
+
+    sampler_qnn = SamplerQNN(
+        circuit=circuit,
+        input_params=feature_map.parameters,
+        weight_params=ansatz.parameters,
+        interpret=parity,
+        output_shape=output_shape,
+        sampler=sampler,
+        gradient=sampler_gradient,
+    )
+    ...
+
+
+Transpilation and Pass Managers
+-------------------------------
+ 
+If your primitives require transpiled circuits,i.e. `qiskit-ibm-runtime.primitives`,
+use `pass_manager` with `qiskit-machine-learning` functions to optimize performance.
+
+- For kernel-based methods:
+
+.. code:: ipython3
+
+    from qiskit_ibm_runtime import Session, SamplerV2
+    from qiskit.providers.fake_provider import GenericBackendV2
+    from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+
+    from qiskit_machine_learning.state_fidelities import ComputeUncompute
+    from qiskit_machine_learning.kernels import FidelityQuantumKernel
+
+    ...
+    backend = GenericBackendV2(num_qubits=num_qubits)
+    session = Session(backend=backend)
+    pass_manager = generate_preset_pass_manager(optimization_level=0, backend=backend)
+
+    sampler = SamplerV2(mode=session)
+    fidelity = ComputeUncompute(sampler=sampler, pass_manager=pass_manager)
+
+    feature_map = ZZFeatureMap(num_qubits)
+    qk = FidelityQuantumKernel(feature_map=feature_map, fidelity=fidelity)
+    ...
+
+- For Estimator based neural_network based methods:
+
+.. code:: ipython3
+
+    from qiskit_ibm_runtime import Session, EstimatorV2
+    from qiskit.providers.fake_provider import GenericBackendV2
+    from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+
+    from qiskit_machine_learning.neural_networks import EstimatorQNN
+    from qiskit_machine_learning.gradients import ParamShiftEstimatorGradient
+
+    ...
+    backend = GenericBackendV2(num_qubits=num_qubits)
+    session = Session(backend=backend)
+
+    estimator = Estimator(mode=session)
+    pass_manager = generate_preset_pass_manager(optimization_level=0, backend=backend)
+    estimator_qnn = EstimatorQNN(
+        circuit=qc,
+        observables=[observables],
+        input_params=feature_map.parameters,
+        weight_params=ansatz.parameters,
+        estimator=estimator,
+        pass_manager=pass_manager,
+    )
+
+or with more details:
+
+.. code:: ipython3
+
+    backend = GenericBackendV2(num_qubits=num_qubits)
+    session = Session(backend=backend)
+
+    estimator = Estimator(mode=session)
+    pass_manager = generate_preset_pass_manager(optimization_level=0, backend=backend)
+    estimator_gradient = ParamShiftEstimatorGradient(
+        estimator=estimator, pass_manager=pass_manager
+    )
+
+    isa_qc = pass_manager.run(qc)
+    observables = SparsePauliOp.from_list(...)
+    isa_observables = observables.apply_layout(isa_qc.layout)
+    estimator_qnn = EstimatorQNN(
+        circuit=isa_qc,
+        observables=[isa_observables],
+        input_params=feature_map.parameters,
+        weight_params=ansatz.parameters,
+        estimator=estimator,
+        gradient=estimator_gradient,
+    )
+
+- For Sampler based neural_network based methods:
+
+.. code:: ipython3
+    
+    from qiskit_ibm_runtime import Session, SamplerV2
+    from qiskit.providers.fake_provider import GenericBackendV2
+    from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+
+    from qiskit_machine_learning.neural_networks import SamplerQNN
+    from qiskit_machine_learning.gradients import ParamShiftSamplerGradient
+
+    ...
+    backend = GenericBackendV2(num_qubits=num_qubits)
+    session = Session(backend=backend)
+    pass_manager = generate_preset_pass_manager(optimization_level=0, backend=backend)
+    sampler = SamplerV2(mode=session)
+
+    sampler_qnn = SamplerQNN(
+        circuit=qc,
+        input_params=feature_map.parameters,
+        weight_params=ansatz.parameters,
+        interpret=parity,
+        output_shape=output_shape,
+        sampler=sampler,
+        pass_manager=pass_manager,
+    )
+
+or with more details:
+
+.. code:: ipython3
+
+    backend = GenericBackendV2(num_qubits=num_qubits)
+    session = Session(backend=backend)
+    pass_manager = generate_preset_pass_manager(optimization_level=0, backend=backend)
+
+    sampler = SamplerV2(mode=session)
+    sampler_gradient = ParamShiftSamplerGradient(sampler=sampler, pass_manager=pass_manager)
+    isa_qc = pass_manager.run(qc)
+    sampler_qnn = SamplerQNN(
+        circuit=isa_qc,
+        input_params=feature_map.parameters,
+        weight_params=ansatz.parameters,
+        interpret=parity,
+        output_shape=output_shape,
+        sampler=sampler,
+        gradient=sampler_gradient,
+    )
+    ...
+
+
+Algorithms from `qiskit_algorithms`
+-----------------------------------
+
+Essential features of Qiskit Algorithms have been integrated into Qiskit Machine Learning.
+Therefore, Qiskit Machine Learning will no longer depend on Qiskit Algorithms.
+This migration requires Qiskit 1.0 or higher and may necessitate updating Qiskit Aer. 
+Be cautious during updates to avoid breaking changes in critical production stages. 
+
+Users must update their imports and code references in code that uses Qiskit Machine Leaning and Algorithms:
+
+- Change `qiskit_algorithms.gradients` to `qiskit_machine_learning.gradients`
+- Change `qiskit_algorithms.optimizers` to `qiskit_machine_learning.optimizers`
+- Change `qiskit_algorithms.state_fidelities` to `qiskit_machine_learning.state_fidelities`
+- Update utilities as needed due to partial merge.
+
+To continue using sub-modules and functionalities of Qiskit Algorithms that **have not been transferred**, 
+you may continue using them as before by importing from Qiskit Algorithms. However, be aware that Qiskit Algorithms
+is no longer officially supported and some of its functionalities may not work in your use case. For any problems 
+directly related to Qiskit Algorithms, please open a GitHub issue at 
+`qiskit-algorithms <https://github.com/qiskit-community/qiskit-algorithms>`__.
+Should you want to include a Qiskit Algorithms functionality that has not been incorporated in Qiskit Machine
+Learning, please open a feature-request issue at 
+`qiskit-machine-learning <https://github.com/qiskit-community/qiskit-machine-learning>`__,
+
+explaining why this change would be useful for you and other users.
+
+Four examples of upgrading the code can be found below.
+  
+Gradients:
+
+.. code:: ipython3
+
+    # Before:
+    from qiskit_algorithms.gradients import SPSA, ParameterShift
+    # After:
+    from qiskit_machine_learning.gradients import SPSA, ParameterShift
+    # Usage
+    spsa = SPSA()
+    param_shift = ParameterShift()
+
+Optimizers:
+
+.. code:: ipython3
+
+    # Before:
+    from qiskit_algorithms.optimizers import COBYLA, ADAM
+    # After:
+    from qiskit_machine_learning.optimizers import COBYLA, ADAM
+    # Usage
+    cobyla = COBYLA()
+    adam = ADAM()
+
+Quantum state fidelities:
+
+.. code:: ipython3
+
+    # Before:
+    from qiskit_algorithms.state_fidelities import ComputeFidelity
+    # After:
+    from qiskit_machine_learning.state_fidelities import ComputeFidelity
+    # Usage
+    fidelity = ComputeFidelity()
+
+
+Algorithm globals (used to fix the random seed):
+
+.. code:: ipython3
+
+    # Before:
+    from qiskit_algorithms.utils import algorithm_globals
+    # After:
+    from qiskit_machine_learning.utils import algorithm_globals
+    algorithm_globals.random_seed = 1234
+
+
+🔪 The Sharp Bits: Common Pitfalls
+-----------------------------------
+
+- 🔪 Transpiling without measurements:
+
+.. code:: ipython3
+
+    # Before:
+    qc = QuantumCircuit(1)
+    qc.h(0)
+    qc.ry(params[0], 0)
+    qc.rx(params[1], 0)
+    pass_manager.run(qc)
+
+This approach causes issues for the transpiler, as it will measure all physical qubits instead 
+of virtual qubits when the number of physical qubits exceeds the number of virtual qubits. 
+Always add measurements before transpilation:
+
+
+.. code:: ipython3
+
+    # After:
+    qc = QuantumCircuit(1)
+    qc.h(0)
+    qc.ry(params[0], 0)
+    qc.rx(params[1], 0)
+    qc.measure_all()
+    pass_manager.run(qc)
+
+- 🔪 Dynamic Attribute Naming in Qiskit v1.x:
+
+In the latest version of Qiskit (v1.x), the dynamic naming of attributes based on the
+classical register's name introduces potential bugs.
+Please use `meas` or `c` for your register names to avoid any issues for SamplerV2.
+
+.. code:: ipython3
+
+    # for measue_all():
+    dist = result[0].data.meas.get_counts()
+
+.. code:: ipython3
+
+    # for cbit:
+    dist = result[0].data.c.get_counts()
+
+- 🔪 Adapting observables for transpiled circuits:
+
+.. code:: ipython3
+
+    # Wrong:
+    ...
+    pass_manager = generate_preset_pass_manager(optimization_level=0, backend=backend)
+    isa_qc = pass_manager.run(qc)
+    observables = SparsePauliOp.from_list(...)
+    estimator_qnn = EstimatorQNN(
+        circuit=isa_qc,
+        observables=[observables],
+    ...
+
+
+    # Correct:
+        ...
+        pass_manager = generate_preset_pass_manager(optimization_level=0, backend=backend)
+        isa_qc = pass_manager.run(qc)
+        observables = SparsePauliOp.from_list(...)
+        isa_observables = observables.apply_layout(isa_qc.layout)
+        estimator_qnn = EstimatorQNN(
+            circuit=isa_qc,
+            observables=[isa_observables],
+        ...
+
+
+- 🔪 Passing gradients without a pass manager:
+
+Some gradient algorithms may require creation of new circuits, and primitives from  
+`qiskit-ibm-runtime` require transpilation. Please ensure a pass manager is also provided to gradients.
+
+.. code:: ipython3
+    
+    # Wrong:
+    ...
+    pass_manager = generate_preset_pass_manager(optimization_level=0, backend=backend)
+    gradient = ParamShiftEstimatorGradient(estimator=estimator)
+    ...
+
+    # Correct:
+    ...
+    pass_manager = generate_preset_pass_manager(optimization_level=0, backend=backend)
+    gradient = ParamShiftEstimatorGradient(
+        estimator=estimator, pass_manager=pass_manager
+    )
+    ...
+
+- 🔪 Don't forget to migrate if you are using functions from `qiskit_algorithms` instead of `qiskit-machine-learning` for V2 primitives.
+- 🔪 Some gradients such as SPSA and LCU from `qiskit_machine_learning.gradients` can be very prone to noise, be cautious of gradient values.
