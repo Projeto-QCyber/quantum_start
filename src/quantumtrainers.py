@@ -110,7 +110,7 @@ class TestTrial(optuna.trial.BaseTrial):
 class VQCTrainer(BaseTrainer):
     """Variational Quantum Classifier trainer with hyperparameter optimization"""
     
-    # Circuit configurations with explicit dimension handling
+    # Configurações de Feature Maps e Ansatz com dimensões explicitas!! (Fonte de muitooos erros, cuidado com o encoding RawFeature)
     FEATURE_MAPS = {
         'PauliFeatureMap': {
             'class': PauliFeatureMap,
@@ -122,7 +122,7 @@ class VQCTrainer(BaseTrainer):
         },
         'RawFeatureVector': {
             'class': RawFeatureVector,
-            'uses_qubit_dimension': False,  # feature_dimension = 2**n_qubits
+            'uses_qubit_dimension': False,  # feature_dimension = 2**n_qubits (cuidado!)
             'params': {}
         },
         'ZFeatureMap': {

@@ -5,6 +5,8 @@ from sklearn.preprocessing import StandardScaler, MaxAbsScaler, RobustScaler
 from sklearn.decomposition import PCA
 from sklearn.feature_selection import VarianceThreshold
 from logger import get_logger
+import os
+import sys
 
 class IDSPreprocessor:
     """Preprocessor for Intrusion Detection System data with quantum-specific handling"""
@@ -162,6 +164,20 @@ class IDSPreprocessor:
         """Fit and transform the data."""
         self._validate_dimensions(X)
         
+        # ------------------------------------------------------------------
+        # Pre-clean: drop non-numeric columns (e.g. strings such as IPs) that
+        # would otherwise break the downstream scalers. The user is warned
+        # once, but the operation is silent when the DataFrame is already
+        # purely numeric. This makes the preprocessor plug-and-play with the
+        # Edge-IIoT dataset whose raw CSV contains several textual columns.
+        # ------------------------------------------------------------------
+        non_num_cols = X.select_dtypes(exclude=[np.number]).columns.tolist()
+        if non_num_cols:
+            self.logger.warning(
+                "Dropping %d non-numeric feature(s): %s", len(non_num_cols), non_num_cols
+            )
+            X = X.drop(columns=non_num_cols)
+        
         # Apply log transformation if specified
         X_transformed = X.copy()
         for feature in self.log_transform_features:
@@ -212,3 +228,85 @@ class IDSPreprocessor:
         if self.pca is not None:
             return np.asarray(self.pca.transform(X_scaled))
         return np.asarray(X_scaled)
+
+# -----------------------------------------------------------------------------
+# Utility helpers specific to the Edge-IIoT dataset
+# -----------------------------------------------------------------------------
+
+def load_edgeiot_dataset(
+    csv_path: str,
+    label_col: str = "Attack_label",
+    drop_cols: Optional[List[str]] = None,
+):
+    """Load the Edge-IIoT CSV and return (X, y) while printing basic stats.
+
+    The function purposely keeps things lightweight and produces simple
+    descriptive statistics that are useful before any heavy preprocessing.
+    """
+
+    logger = get_logger(__name__)
+
+    if drop_cols is None:
+        drop_cols = ["Attack_type"]  # category strings not used for modelling
+
+    logger.info("Loading Edge-IIoT dataset from %s", csv_path)
+    df = pd.read_csv(csv_path)
+
+    if label_col not in df.columns:
+        raise KeyError(f"Label column '{label_col}' not found in {csv_path}.")
+
+    # Basic stats
+    logger.info("Dataset shape : %s rows × %s columns", *df.shape)
+    label_counts = df[label_col].value_counts().to_dict()
+    logger.info("Label distribution (benign=0 vs. attack): %s", label_counts)
+
+    # Numeric summary of the numeric subset
+    numeric_summary = df.select_dtypes(include=[np.number]).describe().T
+    logger.info("Numeric feature summary:\n%s", numeric_summary[['mean', 'std', 'min', 'max']])
+
+    # Separate features / label
+    X = df.drop(columns=[label_col] + drop_cols)
+    y = df[label_col].values
+
+    return X, y
+
+# -----------------------------------------------------------------------------
+# Quick demonstrator – hello-world style
+# -----------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    # Default expected locations (relative to project root and this script)
+    _candidate_paths = [
+        "datasets/ML-EdgeIIoT-dataset.csv",  # most common when run from repo root
+        "../datasets/ML-EdgeIIoT-dataset.csv",  # fallback when run from src/
+    ]
+
+    CSV_PATH = None
+    for _p in _candidate_paths:
+        if os.path.exists(_p):
+            CSV_PATH = _p
+            break
+
+    if CSV_PATH is None:
+        print("Could not locate ML-EdgeIIoT-dataset.csv. Checked paths:\n", _candidate_paths)
+        sys.exit(1)
+
+    try:
+        X_raw, y = load_edgeiot_dataset(CSV_PATH)
+
+        preprocessor = IDSPreprocessor(
+            scaler_type="standard",
+            dim_reduction_type="none",
+        )
+
+        X_ready = preprocessor.fit_transform(X_raw)
+
+        print("Hello, world! ✨  Preprocessing successful.")
+        print(f"Processed feature matrix shape: {X_ready.shape}")
+        print(f"Benign vs. attack counts         : {np.bincount(y.astype(int))}")
+
+    except FileNotFoundError:
+        print(
+            "Edge-IIoT CSV not found at", CSV_PATH,
+            "– please adjust the path or download the dataset first."
+        )
