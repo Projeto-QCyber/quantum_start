@@ -9,4 +9,5 @@ dependencies = [
     "qiskit>=1.4",
     "qiskit-machine-learning>=0.8.3",
     "pandas>=2.2.3",
+    "ruff>=0.12.2",
 ]

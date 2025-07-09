@@ -28,7 +28,8 @@ def generate_dataset(
     quantum_mode: bool = False,
     max_samples: Optional[int] = None,
     n_splits: int = 5,  # Number of folds
-    fold_idx: int = 0  # Which fold to use
+    fold_idx: int = 0,  # Which fold to use
+    dataset_type: str = "UNSW"  # "UNSW" or "EdgeIIoT"
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Load and prepare UNSW-NB15 dataset with k-fold splitting
     
@@ -43,13 +44,22 @@ def generate_dataset(
     """
     logger = get_logger(__name__)
     
-    # Define paths relative to current directory
-    if micro:
-        train_path = Path("../datasets/UNSW_NB15_training-set.micro.csv")
-        test_path = Path("../datasets/UNSW_NB15_testing-set.micro.csv")
+    # Define paths for different datasets
+    dataset_type = dataset_type.lower()
+
+    if dataset_type == "unsw":
+        if micro:
+            train_path = Path("../datasets/UNSW_NB15_training-set.micro.csv")
+            test_path = Path("../datasets/UNSW_NB15_testing-set.micro.csv")
+        else:
+            train_path = Path("../datasets/UNSW_NB15_training-set.csv")
+            test_path = Path("../datasets/UNSW_NB15_testing-set.csv")
+    elif dataset_type == "edgeiot":
+        # For Edge-IIoT we only support micro version created by create_micro_dataset_edgeiot
+        train_path = Path("../datasets/ML-EdgeIIoT-training.micro.csv")
+        test_path = Path("../datasets/ML-EdgeIIoT-testing.micro.csv")
     else:
-        train_path = Path("../datasets/UNSW_NB15_training-set.csv")
-        test_path = Path("../datasets/UNSW_NB15_testing-set.csv")
+        raise ValueError("dataset_type must be either 'UNSW' or 'EdgeIOT'")
     
     # Check if files exist
     if not train_path.exists() or not test_path.exists():
@@ -65,8 +75,16 @@ def generate_dataset(
     except Exception as e:
         raise RuntimeError(f"Error loading dataset: {str(e)}")
     
+    # Harmonise column names across datasets so downstream code can stay unchanged
+    if dataset_type == "edgeiot":
+        # Edge dataset uses Attack_label (0/1) and optional Attack_type text column
+        if "Attack_label" not in train_df.columns:
+            raise ValueError("Column 'Attack_label' not found in Edge-IIoT dataset")
+        train_df = train_df.rename(columns={"Attack_label": "label", "Attack_type": "attack_cat"})
+        test_df = test_df.rename(columns={"Attack_label": "label", "Attack_type": "attack_cat"})
+    
     # Validate required columns exist
-    required_columns = ['attack_cat', 'label']
+    required_columns = ["label", "attack_cat"]
     missing_columns = [col for col in required_columns if col not in train_df.columns]
     if missing_columns:
         raise ValueError(f"Missing required columns in dataset: {missing_columns}")
@@ -89,9 +107,12 @@ def generate_dataset(
     X = combined_df.drop(['attack_cat', 'label'], axis=1)
     y = combined_df['label']
     
-    # Handle categorical columns
-    categorical_columns = ['proto', 'service', 'state']
-    X = pd.get_dummies(X, columns=categorical_columns, drop_first=True)
+    # Handle categorical columns – only one-hot encode columns that actually exist
+    default_cats = ['proto', 'service', 'state']  # typical for UNSW
+    edge_cats = ["Attack_type"]  # in case it is still present, but we removed earlier. Keep empty.
+    categorical_columns = [c for c in (default_cats + edge_cats) if c in X.columns]
+    if categorical_columns:
+        X = pd.get_dummies(X, columns=categorical_columns, drop_first=True)
     
     # Create stratified k-fold splitter
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)

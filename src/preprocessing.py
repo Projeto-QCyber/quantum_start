@@ -179,14 +179,13 @@ class IDSPreprocessor:
             X = X.drop(columns=non_num_cols)
         
         # Apply log transformation if specified
-        X_transformed = X.copy()
         for feature in self.log_transform_features:
-            if feature in X_transformed.columns:
+            if feature in X.columns:
                 # Add small constant to handle zeros
-                X_transformed[feature] = np.log1p(X_transformed[feature])
+                X[feature] = np.log1p(X[feature])
         
         # Scale the features
-        X_scaled = self.scaler.fit_transform(X_transformed)
+        X_scaled = self.scaler.fit_transform(X)
         
         # Apply feature selection if specified
         if self.selector is not None:
@@ -211,8 +210,29 @@ class IDSPreprocessor:
     
     def transform(self, X: pd.DataFrame) -> np.ndarray:
         """Transform the data using fitted parameters."""
-        # Apply log transformation if specified
+        # ------------------------------------------------------------------
+        # Ensure we perform the same non-numeric column drop as in fit_transform
+        # and align the feature set to those seen during fit using scaler.feature_names_in_.
+        # Extra columns are discarded and missing ones are filled with zeros (or left-zero after scaling).
+        # ------------------------------------------------------------------
+
+        # Drop non-numeric columns consistently
         X_transformed = X.copy()
+        non_num_cols = X_transformed.select_dtypes(exclude=[np.number]).columns.tolist()
+        if non_num_cols:
+            # Do not warn repeatedly during batch processing – only debug level
+            self.logger.debug(
+                "Dropping %d non-numeric feature(s) at transform time: %s",
+                len(non_num_cols), non_num_cols,
+            )
+            X_transformed = X_transformed.drop(columns=non_num_cols, errors="ignore")
+
+        # Align feature columns to those used during fit
+        if hasattr(self.scaler, "feature_names_in_"):
+            fit_cols = list(self.scaler.feature_names_in_)
+            X_transformed = X_transformed.reindex(columns=fit_cols, fill_value=0)
+        
+        # Apply log transformation if specified
         for feature in self.log_transform_features:
             if feature in X_transformed.columns:
                 X_transformed[feature] = np.log1p(X_transformed[feature])
