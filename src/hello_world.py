@@ -22,7 +22,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 
-from preprocessing import load_edgeiot_dataset, IDSPreprocessor
+from preprocessing import load_EdgeIIoT_dataset, IDSPreprocessor
 
 # Try importing quantum components; if unavailable default to classical NB
 USE_QUANTUM = True
@@ -51,7 +51,7 @@ def _locate_dataset() -> str:
 
 def _prepare_data(max_rows: int = 50) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Load a slice of the dataset and return train/test numpy arrays."""
-    X_df, y = load_edgeiot_dataset(_locate_dataset())
+    X_df, y = load_EdgeIIoT_dataset(_locate_dataset())
     X_df = X_df.iloc[:max_rows]
     y = y[:max_rows]
 

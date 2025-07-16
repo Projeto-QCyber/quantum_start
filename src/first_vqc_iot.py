@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-from preprocessing import load_edgeiot_dataset, IDSPreprocessor
+from preprocessing import load_EdgeIIoT_dataset, IDSPreprocessor
 from quantumtrainers import VQCTrainer
 from qiskit.providers.fake_provider import GenericBackendV2
 from qiskit_machine_learning.optimizers import SPSA
@@ -36,7 +36,7 @@ def main() -> None:
         )
 
     # Carrega o dataset (apenas features numéricas)
-    X_full, y_full = load_edgeiot_dataset(csv_path)
+    X_full, y_full = load_EdgeIIoT_dataset(csv_path)
     X_num = X_full.select_dtypes(include=[np.number])
 
     # Build a balanced (100 benign, 100 attack) subset

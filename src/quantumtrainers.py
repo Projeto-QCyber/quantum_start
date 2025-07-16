@@ -29,6 +29,9 @@ from classicaltrainers import BaseTrainer
 from preprocessing import IDSPreprocessor
 from logger import get_logger
 from dataset import generate_dataset, load_dataset_info
+from qiskit_machine_learning.algorithms.classifiers import VQC
+from qiskit_machine_learning.algorithms.optimizers import COBYLA, L_BFGS_B, ADAM
+from qiskit.primitives import Sampler
 
 class TestTrial(optuna.trial.BaseTrial):
     """Trial subclass for testing optimizers with fixed parameters."""
@@ -173,26 +176,14 @@ class VQCTrainer(BaseTrainer):
         }
     }
     
-    def __init__(self, 
-                 backend: BackendV2,
-                 study_name: str,
-                 storage_path: str = "optuna_studies.db",
-                 n_trials: int = 3,
-                 class_names: Optional[List[str]] = None):
-        """Initialize the VQC trainer with study persistence."""
-        super().__init__(n_trials=n_trials, class_names=class_names)
-        self.backend = backend
+    def __init__(self, sampler: Sampler, study_name: str, n_trials: int = 50):
+        super().__init__(n_trials=n_trials)
+        self.sampler = sampler
         self.study_name = study_name
-        self.storage_path = storage_path
-
-        # Initialize other components
-        self.sampler = BackendSamplerV2(backend=self.backend)
-        self.n_qubits = None  # Will be set based on data dimensions
-        
-        # Setup logging
-        self.logger = get_logger(__name__)
-        self.logger.info(f"Initializing VQCTrainer with study: {study_name}")
-        self.logger.info(f"Backend: {backend}, Trials: {n_trials}")
+        self.logger = get_logger(self.study_name)
+        self.best_params = {}
+        self.metrics = {}
+        self.training_times = {}
 
     def _create_optimizer(self, trial: Union[Trial, FrozenTrial, TestTrial]) -> Any:
         """Create optimizer based on trial parameters."""
@@ -328,6 +319,7 @@ class VQCTrainer(BaseTrainer):
         
         # Create VQC model with validated components
         model = VQC(
+            sampler=self.sampler,
             feature_map=feature_map,
             ansatz=ansatz,
             loss="cross_entropy",
@@ -678,14 +670,14 @@ class VQCTrainer(BaseTrainer):
         """Validate that the backend can support the required number of qubits."""
         logger = get_logger(__name__)
         
-        if n_qubits > self.backend.num_qubits:
+        if n_qubits > self.sampler.backend.num_qubits:
             raise ValueError(
-                f"Backend {self.backend.name} only supports {self.backend.num_qubits} qubits, "
+                f"Backend {self.sampler.backend.name} only supports {self.sampler.backend.num_qubits} qubits, "
                 f"but {n_qubits} qubits are required."
             )
         
         logger.debug(f"Backend validation passed: {n_qubits} qubits required, "
-                    f"{self.backend.num_qubits} available")
+                    f"{self.sampler.backend.num_qubits} available")
 
 
 if __name__ == "__main__":
@@ -694,9 +686,8 @@ if __name__ == "__main__":
     # Initialize backend and trainer
     backend = GenericBackendV2(num_qubits=4)  # Backend needs enough qubits for all tests
     trainer = VQCTrainer(
-        backend=backend,
+        sampler=BackendSamplerV2(backend=backend),
         study_name="comprehensive_test",
-        storage_path="quantum_optimization.db",
         n_trials=5
     )
     

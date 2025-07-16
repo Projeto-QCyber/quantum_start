@@ -29,7 +29,7 @@ def generate_dataset(
     max_samples: Optional[int] = None,
     n_splits: int = 5,  # Number of folds
     fold_idx: int = 0,  # Which fold to use
-    dataset_type: str = "UNSW"  # "UNSW" or "EdgeIIoT"
+    dataset_type: str = "EdgeIIoT"  # "UNSW" or "EdgeIIoT"
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Load and prepare UNSW-NB15 dataset with k-fold splitting
     
@@ -43,74 +43,107 @@ def generate_dataset(
         fold_idx: Which fold to use (0 to n_splits-1)
     """
     logger = get_logger(__name__)
-    
-    # Define paths for different datasets
-    dataset_type = dataset_type.lower()
 
-    if dataset_type == "unsw":
-        if micro:
-            train_path = Path("../datasets/UNSW_NB15_training-set.micro.csv")
-            test_path = Path("../datasets/UNSW_NB15_testing-set.micro.csv")
-        else:
-            train_path = Path("../datasets/UNSW_NB15_training-set.csv")
-            test_path = Path("../datasets/UNSW_NB15_testing-set.csv")
-    elif dataset_type == "edgeiot":
-        # For Edge-IIoT we only support micro version created by create_micro_dataset_edgeiot
-        train_path = Path("../datasets/ML-EdgeIIoT-training.micro.csv")
-        test_path = Path("../datasets/ML-EdgeIIoT-testing.micro.csv")
-    else:
-        raise ValueError("dataset_type must be either 'UNSW' or 'EdgeIOT'")
+    # Define dataset-specific properties
+    dataset_configs = {
+        "unsw": {
+            "train_micro_path": "../datasets/UNSW_NB15_training-set.micro.csv",
+            "test_micro_path": "../datasets/UNSW_NB15_testing-set.micro.csv",
+            "train_full_path": "../datasets/UNSW_NB15_training-set.csv",
+            "test_full_path": "../datasets/UNSW_NB15_testing-set.csv",
+            "label_col": "label",
+            "attack_cat_col": "attack_cat",
+            "categorical_features": ['proto', 'service', 'state']
+        },
+        "edgeiiot": {
+            "train_micro_path": "../datasets/ML-EdgeIIoT-dataset-training.csv",
+            "test_micro_path": "../datasets/ML-EdgeIIoT-dataset-testing.csv",
+            "train_full_path": "../datasets/ML-EdgeIIoT-dataset-training.csv",
+            "test_full_path": "../datasets/ML-EdgeIIoT-dataset-testing.csv",
+            "label_col": "Attack_label",
+            "attack_cat_col": "Attack_type",
+            "categorical_features": []
+        }
+    }
     
+    # Get config for selected dataset
+    dataset_type_lower = dataset_type.lower()
+    if dataset_type_lower not in dataset_configs:
+        raise ValueError(f"Invalid dataset_type '{dataset_type}'. Must be one of {list(dataset_configs.keys())}")
+    
+    config = dataset_configs[dataset_type_lower]
+    
+    # Determine file paths
+    if micro:
+        train_path = Path(config["train_micro_path"])
+        test_path = Path(config["test_micro_path"])
+    else:
+        if config["train_full_path"] is None:
+            logger.warning(f"Full dataset path not specified for '{dataset_type}'. Falling back to micro dataset.")
+            train_path = Path(config["train_micro_path"])
+            test_path = Path(config["test_micro_path"])
+        else:
+            train_path = Path(config["train_full_path"])
+            test_path = Path(config["test_full_path"])
+
     # Check if files exist
     if not train_path.exists() or not test_path.exists():
         raise FileNotFoundError(
             f"Dataset not found at {train_path} or {test_path}. "
-            f"Please ensure the UNSW-NB15 {'micro' if micro else 'full'} dataset files are present."
+            f"Please ensure the {'micro' if micro else 'full'} dataset files for '{dataset_type}' are present."
         )
     
-    # Load datasets with error handling
+    # Load datasets
     try:
         train_df = pd.read_csv(train_path)
         test_df = pd.read_csv(test_path)
     except Exception as e:
-        raise RuntimeError(f"Error loading dataset: {str(e)}")
-    
-    # Harmonise column names across datasets so downstream code can stay unchanged
-    if dataset_type == "edgeiot":
-        # Edge dataset uses Attack_label (0/1) and optional Attack_type text column
-        if "Attack_label" not in train_df.columns:
-            raise ValueError("Column 'Attack_label' not found in Edge-IIoT dataset")
-        train_df = train_df.rename(columns={"Attack_label": "label", "Attack_type": "attack_cat"})
-        test_df = test_df.rename(columns={"Attack_label": "label", "Attack_type": "attack_cat"})
-    
-    # Validate required columns exist
-    required_columns = ["label", "attack_cat"]
-    missing_columns = [col for col in required_columns if col not in train_df.columns]
-    if missing_columns:
-        raise ValueError(f"Missing required columns in dataset: {missing_columns}")
-    
+        raise RuntimeError(f"Error loading CSV files: {e}")
+
+    # Harmonize column names to internal standard ('label', 'attack_cat')
+    rename_map = {}
+    if config["label_col"] in train_df.columns and config["label_col"] != "label":
+        rename_map[config["label_col"]] = "label"
+    if config["attack_cat_col"] in train_df.columns and config["attack_cat_col"] != "attack_cat":
+        rename_map[config["attack_cat_col"]] = "attack_cat"
+        
+    if rename_map:
+        train_df = train_df.rename(columns=rename_map)
+        test_df = test_df.rename(columns=rename_map)
+
+    # Validate that the standardized 'label' column exists
+    if "label" not in train_df.columns:
+        raise ValueError(f"Standardized 'label' column not found in the dataset. Original expected: '{config['label_col']}'")
+
     # Combine datasets for processing
     combined_df = pd.concat([train_df, test_df], ignore_index=True)
     
-    # Reduce dataset size while maintaining class distribution if max_samples specified
+    # Reduce dataset size while maintaining class distribution
     if max_samples and len(combined_df) > max_samples:
         logger.info(f"Reducing dataset from {len(combined_df)} to {max_samples} samples")
-        combined_df = combined_df.groupby('label', group_keys=False).apply(
-            lambda x: x.sample(n=max(1, int(max_samples * len(x) / len(combined_df))), random_state=42)
-        )
-        if len(combined_df) > max_samples:  # Handle rounding up
+        # Ensure 'label' column exists before grouping
+        if 'label' in combined_df.columns:
+            combined_df = combined_df.groupby('label', group_keys=False).apply(
+                lambda x: x.sample(n=max(1, int(max_samples * len(x) / len(combined_df))), random_state=42)
+            )
+            if len(combined_df) > max_samples:
+                combined_df = combined_df.sample(n=max_samples, random_state=42)
+        else:
+            logger.warning("No 'label' column found for stratified sampling, using random sampling instead.")
             combined_df = combined_df.sample(n=max_samples, random_state=42)
-    
+
     logger.info(f"Dataset loaded: {len(combined_df)} total samples")
     
     # Separate features and target
-    X = combined_df.drop(['attack_cat', 'label'], axis=1)
+    drop_cols = ['label']
+    if 'attack_cat' in combined_df.columns:
+        drop_cols.append('attack_cat')
+    
+    X = combined_df.drop(columns=drop_cols)
     y = combined_df['label']
     
-    # Handle categorical columns – only one-hot encode columns that actually exist
-    default_cats = ['proto', 'service', 'state']  # typical for UNSW
-    edge_cats = ["Attack_type"]  # in case it is still present, but we removed earlier. Keep empty.
-    categorical_columns = [c for c in (default_cats + edge_cats) if c in X.columns]
+    # Handle categorical columns dynamically
+    categorical_columns = [col for col in config["categorical_features"] if col in X.columns]
     if categorical_columns:
         X = pd.get_dummies(X, columns=categorical_columns, drop_first=True)
     
@@ -118,30 +151,32 @@ def generate_dataset(
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
     
     # Get the specified fold
-    train_indices = []
-    test_indices = []
+    train_indices = np.array([], dtype=np.intp)
+    test_indices = np.array([], dtype=np.intp)
     for i, (train_idx, test_idx) in enumerate(skf.split(X, y)):
         if i == fold_idx:
-            train_indices = train_idx
-            test_indices = test_idx
+            train_indices, test_indices = train_idx, test_idx
             break
     
     # Split the data using the fold indices
-    X_train = X.iloc[train_indices]
-    X_test = X.iloc[test_indices]
-    y_train = y.iloc[train_indices]
-    y_test = y.iloc[test_indices]
+    X_train, X_test = X.iloc[train_indices], X.iloc[test_indices]
+    y_train, y_test = y.iloc[train_indices], y.iloc[test_indices]
     
     # Create default preprocessor if none provided
     if preprocessor is None:
+        # Define log transform features common to both datasets if applicable
+        log_transform_features = [
+            'dur', 'sbytes', 'dbytes', 'spkts', 'dpkts',
+            'sload', 'dload', 'sinpkt', 'dinpkt'
+        ]
+        # Filter features that are actually in the dataset
+        log_transform_features = [f for f in log_transform_features if f in X_train.columns]
+
         if quantum_mode and n_components:
             logger.info(f"Creating quantum-ready preprocessor with {n_components} qubits")
             preprocessor = IDSPreprocessor(
                 scaler_type='standard',
-                log_transform_features=[
-                    'dur', 'sbytes', 'dbytes', 'spkts', 'dpkts',
-                    'sload', 'dload', 'sinpkt', 'dinpkt'
-                ],
+                log_transform_features=log_transform_features,
                 feature_selection='variance',
                 dim_reduction_type='pca',
                 n_components=n_components,
@@ -150,10 +185,7 @@ def generate_dataset(
         else:
             preprocessor = IDSPreprocessor(
                 scaler_type='standard',
-                log_transform_features=[
-                    'dur', 'sbytes', 'dbytes', 'spkts', 'dpkts',
-                    'sload', 'dload', 'sinpkt', 'dinpkt'
-                ],
+                log_transform_features=log_transform_features,
                 feature_selection='variance',
                 dim_reduction_type='pca' if n_components else 'none',
                 n_components=n_components

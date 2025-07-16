@@ -10,3 +10,4 @@
 /src/results/*
 /logs/*
 /.venv/*
+/src/__pycache__/*

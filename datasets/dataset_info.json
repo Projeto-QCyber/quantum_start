@@ -1,6 +1,6 @@
 {
     "n_features": 8,
-    "n_samples": 79,
+    "n_samples": 799,
     "n_classes": 2,
     "original_features": 61,
     "feature_names": [

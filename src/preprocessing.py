@@ -253,7 +253,7 @@ class IDSPreprocessor:
 # Utility helpers specific to the Edge-IIoT dataset
 # -----------------------------------------------------------------------------
 
-def load_edgeiot_dataset(
+def load_EdgeIIoT_dataset(
     csv_path: str,
     label_col: str = "Attack_label",
     drop_cols: Optional[List[str]] = None,
@@ -312,7 +312,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     try:
-        X_raw, y = load_edgeiot_dataset(CSV_PATH)
+        X_raw, y = load_EdgeIIoT_dataset(CSV_PATH)
 
         preprocessor = IDSPreprocessor(
             scaler_type="standard",
